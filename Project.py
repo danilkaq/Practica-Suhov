@@ -4,8 +4,9 @@ import pandas as pd
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
+import re
 
-TOKEN = "8441368486:AAEzszhElzO5vmXrYferEwcQ0n5BiwXdHZw"
+TOKEN = "8441368486:AAF2Q52N79jeVDrBG4BvxLdqRjnoboT6LP0"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -35,6 +36,17 @@ async def schedule_cmd(message: types.Message):
     user_state[message.from_user.id] = "schedule"
     await message.answer("📎 Загрузите xls-файл с расписанием группы")
 
+#  ЗАДАНИЕ 2
+@dp.message(Command("topics_report"))
+async def topics_cmd(message: types.Message):
+    user_state[message.from_user.id] = "topics"
+    await message.answer("📎 Загрузите xls-файл с темами занятий")
+
+    #  ЗАДАНИЕ 3
+@dp.message(Command("students_report"))
+async def students_cmd(message: types.Message):
+    user_state[message.from_user.id] = "students"
+    await message.answer("📎 Загрузите xls-файл с отчетом по студентам")
 
 
 @dp.message(F.document)
@@ -56,7 +68,18 @@ async def handle_file(message: types.Message):
     try:
         if task == "schedule":
             report = report_schedule(file_path)
-            await message.answer(report)
+            await send_long_message(message, report)
+
+        elif task == "topics":
+            report = report_topics(file_path)
+
+            await send_long_message(message, report)
+
+        elif task == "students":
+            report = report_students(file_path)
+            await send_long_message(message, report)
+
+
         else:
             await message.answer("Задание пока не реализовано")
 
@@ -92,6 +115,98 @@ def report_schedule(file_path: str) -> str:
 
     return text
 
+
+
+
+
+
+def report_topics(file_path: str) -> str:
+    df = pd.read_excel(file_path, header=None)
+
+    pattern = re.compile(r"^Урок № \d+\. Тема: .+")
+    valid_topics = []
+    invalid_topics = []
+
+    for row in df.values:
+        for cell in row:
+            if not isinstance(cell, str):
+                continue
+
+            text = cell.strip()
+
+            # берем только строки, похожие на темы
+            if "Урок" in text or "Тема" in text:
+                if pattern.match(text):
+                    valid_topics.append(text)
+                else:
+                    invalid_topics.append(text)
+
+    if not valid_topics and not invalid_topics:
+        return "❌ В файле не найдено тем занятий"
+
+    result = "📘 Отчет по темам занятий\n\n"
+
+    result += "❌ Темы с ОШИБОЧНЫМ форматом:\n"
+    if invalid_topics:
+        for topic in invalid_topics:
+            result += f"• {topic}\n"
+    else:
+        result += "— отсутствуют\n"
+
+    result += "\n✅ Темы с КОРРЕКТНЫМ форматом:\n"
+    if valid_topics:
+        for topic in valid_topics:
+            result += f"• {topic}\n"
+    else:
+        result += "— отсутствуют\n"
+
+    return result
+
+
+
+def report_students(file_path: str) -> str:
+    df = pd.read_excel(file_path)
+
+    required_columns = {"FIO", "Percentage Homework.1", "Classroom"}
+    if not required_columns.issubset(df.columns):
+        return (
+            "❌ В файле должны быть колонки:\n"
+            "FIO, Percentage Homework.1, Classroom"
+        )
+
+    bad_students = []
+
+    for _, row in df.iterrows():
+        try:
+            hw_avg = float(row["Percentage Homework.1"])
+            classroom = float(row["Classroom"])
+
+            if hw_avg == 1 and classroom <= 3:
+                bad_students.append(str(row["FIO"]))
+        except:
+            continue
+
+    if not bad_students:
+        return "✅ Студенты с заданными условиями не найдены"
+
+    result = (
+        "📋 Отчет по студентам\n"
+        "Средняя оценка за ДЗ = 1\n"
+        "Классная работа ≤ 3\n\n"
+    )
+
+    for i, student in enumerate(bad_students, 1):
+        result += f"{i}. {student}\n"
+
+    return result
+
+
+
+async def send_long_message(message: types.Message, text: str):
+    MAX_LENGTH = 4000
+
+    for i in range(0, len(text), MAX_LENGTH):
+        await message.answer(text[i:i + MAX_LENGTH])
 
 
 async def main():
